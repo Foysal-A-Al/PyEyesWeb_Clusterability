@@ -1,568 +1,163 @@
-# Clusterability
+<div align="center">
 
-A lightweight Python module for measuring **clustering tendency in multivariate data** using the **Hopkins statistic**.
+![PyEyesWeb Clusterability](docs/assets/readme-banner.svg)
 
-The module is designed for both static datasets and real-time signal streams. It supports direct NumPy analysis, sliding-window processing, temporal history tracking, and human-readable interpretation of Hopkins scores.
+# PyEyesWeb Clusterability
 
-It is suitable for applications such as:
+### Inspectable clustering-tendency estimates for arrays and signal windows
 
-- movement and behavioural signal analysis
-- sensor-stream monitoring
-- feature-space validation before clustering
-- motion-pattern assessment
-- exploratory machine-learning pipelines
-- real-time human-computer interaction systems
+![Python](https://img.shields.io/badge/Python-analysis%20module-3776AB?logo=python&logoColor=white)
+![Method](https://img.shields.io/badge/Method-Hopkins%20statistic-168D73)
+![Integration](https://img.shields.io/badge/Integration-PyEyesWeb-7357D5)
 
----
+[Overview](#overview) · [Method](#hopkins-implementation) · [Setup](#setup-and-dependencies) · [API](#api-and-examples) · [Limits](#validation-and-limitations)
+
+</div>
 
 ## Overview
 
-Clustering algorithms will always produce groups, even when the underlying data has no meaningful cluster structure. The Hopkins statistic helps answer a more fundamental question before clustering:
+This component estimates clustering tendency using a Hopkins-style nearest-neighbor statistic. It supports direct array assessment and full sliding-window analysis, plus a bounded history of computed scores.
 
-> **Does this dataset contain evidence of meaningful clusters?**
+It answers an exploratory question about spatial structure in a feature space. It does not perform clustering, choose the number of clusters, detect a clinical condition, or prove that a particular clustering algorithm is appropriate.
 
-The statistic compares nearest-neighbour distances from observed data points with distances from uniformly generated points inside the same feature space.
+| Source | Role |
+|---|---|
+| [Clusterability.py](Clusterability.py) | Analyzer, interpretation thresholds, history summaries, and static helper |
+| [test_clusterability.py](test_clusterability.py) | Pytest cases and local mock classes |
+| [window_demo_test.py](window_demo_test.py) | Window-oriented demonstration script |
 
-A value near `0.5` generally indicates spatial randomness. Higher values suggest a stronger clustering tendency, while lower values indicate a more uniform distribution.
+The source is a root-level module, not an installable standalone PyEyesWeb package.
 
----
+## Hopkins implementation
 
-## Features
+For $m$ sampled observations, let $u_i$ be the distance to the nearest other data point and $w_i$ the nearest-data distance from a uniformly generated point inside the axis-aligned data bounds. The implementation computes
 
-- Hopkins statistic computation for multidimensional NumPy arrays
-- Support for real-time `SlidingWindow` signal buffers
-- Configurable sampling fraction
-- Reproducible analysis through `random_state`
-- Human-readable clusterability labels
-- Thread-safe temporal history storage
-- Mean, standard deviation, trend, and stability statistics
-- Callable analyzer interface
-- One-line convenience function for static datasets
-- Pytest test suite
-- Demonstration script for simulated movement patterns
+$$
+H=\frac{\sum_{i=1}^{m}w_i}{\sum_{i=1}^{m}u_i+\sum_{i=1}^{m}w_i}.
+$$
 
----
+Distances are unpowered Euclidean distances. This convention should be stated when comparing results with implementations using distance powers or the complementary ratio.
 
-## Interpretation
+The sample count is `min(max(2, int(sample_fraction * n)), n // 2)`. Real points are selected without replacement. The second nearest neighbor excludes the sampled observation itself; generated points use the first neighbor.
 
-This implementation uses the following interpretation thresholds:
+| Score interval | Exact source label |
+|---|---|
+| $H>0.75$ | `STRONG CLUSTERING` |
+| $0.6<H\le0.75$ | `MODERATE CLUSTERING` |
+| $0.5<H\le0.6$ | `WEAK CLUSTERING` |
+| $0.3<H\le0.5$ | `RANDOM DISTRIBUTION` |
+| $H\le0.3$ | `UNIFORM DISTRIBUTION` |
 
-| Hopkins value | Interpretation |
-|---:|---|
-| `> 0.75` | Strong clustering |
-| `> 0.60` and `<= 0.75` | Moderate clustering |
-| `> 0.50` and `<= 0.60` | Weak clustering |
-| `> 0.30` and `<= 0.50` | Random distribution |
-| `<= 0.30` | Uniform distribution |
+These are operational thresholds, not calibrated significance tests. In particular, the last label describes the module's low-score convention and should not be confused with the uniform random reference used to generate comparison points.
 
-These labels are practical guidance rather than universal statistical laws. Hopkins values should be interpreted together with sample size, feature scaling, domain knowledge, and repeated measurements.
+If **any** feature has zero range, the routine returns 0.5. It also returns 0.5 when the distance denominator is zero.
 
----
-
-## Requirements
-
-- Python 3.9 or later
-- NumPy
-- scikit-learn
-- pytest, for running tests
-- PyEyesWeb data models and validators, when using the real-time integration
-
-Install the standard Python dependencies with:
+## Setup and dependencies
 
 ```bash
-pip install numpy scikit-learn pytest
+git clone https://github.com/Foysal-A-Al/PyEyesWeb_Clusterability.git
+cd PyEyesWeb_Clusterability
+python -m venv .venv
 ```
 
-The module imports the following PyEyesWeb components:
+Activate with `source .venv/bin/activate` on Linux/macOS or `.venv\Scripts\Activate.ps1` in Windows PowerShell, then install:
+
+```bash
+python -m pip install numpy scikit-learn
+```
+
+A compatible upstream PyEyesWeb installation or checkout must also supply:
 
 ```python
 from pyeyesweb.data_models.sliding_window import SlidingWindow
 from pyeyesweb.data_models.thread_safe_buffer import ThreadSafeHistoryBuffer
-from pyeyesweb.utils.validators import (
-    validate_integer,
-    validate_boolean,
-    validate_numeric,
-)
+from pyeyesweb.utils.validators import validate_integer, validate_boolean, validate_numeric
 ```
 
-Make sure the parent project exposes these modules on the Python path.
+Those imports are required even for the static convenience function. This repository does not include these upstream modules, packaging metadata, or a verified Python-version matrix.
 
----
+## API and examples
 
-## Suggested Project Structure
-
-```text
-project/
-├── Clusterability.py
-├── test_clusterability.py
-├── demo_clusterability.py
-├── requirements.txt
-└── README.md
-```
-
-A minimal `requirements.txt` may contain:
-
-```text
-numpy
-scikit-learn
-pytest
-```
-
-If `pyeyesweb` is a separate package, add it according to the way it is distributed in your environment.
-
----
-
-## Quick Start
-
-### Static NumPy data
-
-Use `assess_clusterability` for a one-time assessment:
+After the upstream dependencies are available, run from the repository root:
 
 ```python
 import numpy as np
+from Clusterability import Clusterability, assess_clusterability
 
-from Clusterability import assess_clusterability
-
+rng = np.random.default_rng(42)
 data = np.vstack([
-    np.random.normal(loc=0.0, scale=0.5, size=(100, 2)),
-    np.random.normal(loc=5.0, scale=0.5, size=(100, 2)),
+    rng.normal(0, 0.3, (100, 2)),
+    rng.normal(4, 0.3, (100, 2)),
 ])
 
-result = assess_clusterability(
-    data,
-    sample_fraction=0.2,
-    random_state=42,
-)
-
+result = assess_clusterability(data, sample_fraction=0.2, random_state=42)
 print(result)
 ```
 
-Example output:
+The example shows the API; a fixed numerical score is not asserted without a recorded environment.
+
+### Constructor
 
 ```python
-{
-    "hopkins_statistic": 0.82,
-    "interpretation": "STRONG CLUSTERING",
-    "sample_size": 200,
-    "feature_dimension": 2,
-}
-```
-
----
-
-## Using the Analyzer Class
-
-```python
-import numpy as np
-
-from Clusterability import Clusterability
-
 analyzer = Clusterability(
     sensitivity=100,
     output_interpretation=True,
     sample_fraction=0.1,
     random_state=42,
 )
-
-data = np.random.normal(size=(250, 4))
-
-hopkins = analyzer.compute_hopkins_statistic(data)
-label = analyzer.interpret_hopkins_statistic(hopkins)
-
-print(f"Hopkins statistic: {hopkins:.3f}")
-print(f"Interpretation: {label}")
 ```
 
----
-
-## Real-Time Sliding-Window Analysis
-
-The analyzer can process a populated PyEyesWeb `SlidingWindow`:
-
-```python
-from Clusterability import Clusterability
-from pyeyesweb.data_models.sliding_window import SlidingWindow
-
-window = SlidingWindow(
-    max_length=100,
-    n_columns=3,
-)
-
-analyzer = Clusterability(
-    sensitivity=50,
-    sample_fraction=0.15,
-    random_state=42,
-)
-
-for point in movement_stream:
-    window.append(point)
-
-    if window.is_full():
-        result = analyzer.compute_clusterability(window)
-
-        print(
-            result["hopkins_statistic"],
-            result["interpretation"],
-        )
-```
-
-The result dictionary contains:
-
-| Key | Description |
+| Parameter | Meaning |
 |---|---|
-| `hopkins_statistic` | Hopkins score between 0 and 1 |
-| `interpretation` | Categorical interpretation or `None` |
-| `sample_size` | Number of observations used |
-| `feature_dimension` | Number of input features |
+| `sensitivity` | History capacity, 1–10,000; not a significance or sensitivity threshold |
+| `output_interpretation` | Enable categorical labels |
+| `sample_fraction` | Sampling fraction, 0.01–0.5 |
+| `random_state` | Nonnegative integer or `None` |
 
-When the window is not full, the method returns `NaN` for the statistic and `None` for the interpretation.
+The static helper defaults to a sample fraction of 0.2, whereas the class defaults to 0.1.
 
----
+### Computation contracts
 
-## Callable Interface
-
-A `Clusterability` instance can also be called directly:
-
-```python
-result = analyzer(window)
-```
-
-This computes the clusterability result and prints the Hopkins score. When interpretation output is enabled, the label is printed as well.
-
----
-
-## Temporal Analysis
-
-Each successfully computed Hopkins value is stored in a thread-safe history buffer.
-
-```python
-statistics = analyzer.get_temporal_statistics()
-
-print(statistics)
-```
-
-Returned values include:
-
-```python
-{
-    "mean": 0.71,
-    "std": 0.04,
-    "trend": 0.002,
-    "stability": 0.056,
-    "history_length": 40,
-}
-```
-
-### Temporal fields
-
-| Field | Meaning |
+| Method | Behavior |
 |---|---|
-| `mean` | Average Hopkins value in the history |
-| `std` | Standard deviation of the history |
-| `trend` | Linear slope across stored values |
-| `stability` | Coefficient of variation, calculated as `std / mean` |
-| `history_length` | Number of stored measurements |
+| `compute_hopkins_statistic(data)` | Direct float result; requires a 2D array with at least 10 rows and one feature |
+| `compute_clusterability(window)` | Dictionary with score, interpretation, observation count, and feature dimension |
+| `analyzer(window)` | Same dictionary, with terminal output when the score is available |
+| `get_history()` | Array of successfully appended window scores |
+| `get_temporal_statistics()` | Mean, population standard deviation, linear trend, coefficient of variation, and history length |
+| `reset_history()` | Clear stored window scores |
 
-A positive trend may indicate that the signal is becoming more structured or clusterable. A negative trend may indicate increasing randomness or dispersion.
+Direct `compute_hopkins_statistic` calls do not append to history. The static helper creates a new analyzer for each call.
 
-Access or clear the stored history with:
+For a non-full window or fewer than 10 observations, the window API returns a `NaN` score and no interpretation. Its `sample_size` field reports **observation count**, not the number of sampled neighbors. The non-full path accesses `window._n_columns`, and the window must expose `is_full()` and `to_array()`.
 
-```python
-history = analyzer.get_history()
-analyzer.reset_history()
-```
+An exception inside the guarded calculation returns score 0.5 with `COMPUTATION ERROR` when labels are enabled. Do not interpret that fallback as evidence of randomness. When interpretations are disabled, this error status is not separately exposed.
 
----
+## History interpretation
 
-## Constructor Parameters
+With at least two history entries, the module reports a least-squares slope against call index and `stability = std / mean`. Despite the field name, this is a coefficient of variation: lower values indicate less relative variation. The trend has no physical time unit because timestamps are ignored.
 
-```python
-Clusterability(
-    sensitivity=100,
-    output_interpretation=True,
-    sample_fraction=0.1,
-    random_state=None,
-)
-```
+Fewer than two entries produce `NaN` summaries and the current history length.
 
-| Parameter | Type | Default | Description |
-|---|---|---:|---|
-| `sensitivity` | `int` | `100` | Maximum number of Hopkins values retained in history |
-| `output_interpretation` | `bool` | `True` | Enables categorical interpretation labels |
-| `sample_fraction` | `float` | `0.1` | Fraction of observations sampled for Hopkins computation |
-| `random_state` | `int` or `None` | `None` | Seed used for reproducible sampling |
+## Validation and limitations
 
-Validation constraints:
+The tests define local mock dependencies but do not replace the module's imported `pyeyesweb` dependencies. An upstream environment is still required. No passing test-suite or real-time integration result is claimed for this documentation update.
 
-- `sensitivity`: between `1` and `10,000`
-- `sample_fraction`: between `0.01` and `0.5`
-- `random_state`: non-negative integer or `None`
-
----
-
-## API Reference
-
-### `compute_hopkins_statistic(data)`
-
-Computes the Hopkins statistic from a two-dimensional NumPy array.
-
-```python
-score = analyzer.compute_hopkins_statistic(data)
-```
-
-Input shape:
-
-```text
-(n_samples, n_features)
-```
-
-Requirements:
-
-- at least 10 observations
-- at least one feature
-- two-dimensional input
-
-If one or more features have zero range, the method returns `0.5`.
-
----
-
-### `interpret_hopkins_statistic(hopkins_stat)`
-
-Maps a Hopkins value to a categorical interpretation.
-
-```python
-label = analyzer.interpret_hopkins_statistic(0.78)
-# "STRONG CLUSTERING"
-```
-
----
-
-### `compute_clusterability(signals)`
-
-Computes clusterability from a `SlidingWindow` instance and returns a structured result dictionary.
-
-```python
-result = analyzer.compute_clusterability(window)
-```
-
----
-
-### `get_temporal_statistics()`
-
-Summarizes the stored Hopkins history.
-
-```python
-summary = analyzer.get_temporal_statistics()
-```
-
-When fewer than two history values are available, numerical summary fields are returned as `NaN`.
-
----
-
-### `get_history()`
-
-Returns all stored Hopkins values as a NumPy array.
-
-```python
-history = analyzer.get_history()
-```
-
----
-
-### `reset_history()`
-
-Clears all stored Hopkins values.
-
-```python
-analyzer.reset_history()
-```
-
----
-
-### `assess_clusterability(data, sample_fraction=0.2, random_state=None)`
-
-Convenience function for analyzing a static NumPy array without manually creating a sliding window.
-
-```python
-result = assess_clusterability(
-    data,
-    sample_fraction=0.2,
-    random_state=42,
-)
-```
-
----
-
-## Running the Tests
-
-From the project directory:
+After preparing that environment:
 
 ```bash
-pytest -v
+python -m pip install pytest
+python -m pytest test_clusterability.py -v
 ```
 
-Or run the test file directly:
+Record the dependency versions and review stochastic assertions before interpreting failures.
 
-```bash
-pytest test_clusterability.py -v
-```
+Important limits include feature-scale sensitivity, axis-aligned reference sampling, high-dimensional distance behavior, duplicate observations, and a lack of explicit finite-value validation. Setting `random_state` resets NumPy's global random seed on every calculation, which can affect unrelated computations.
 
-The included tests cover:
+For reproducible research, record preprocessing, feature definitions, window length, sampling fraction, seed, dependency versions, and repeated-estimate variability. A single score should not replace downstream cluster validation.
 
-- default and custom initialization
-- invalid parameter handling
-- clustered and random datasets
-- Hopkins interpretation thresholds
-- sliding-window integration
-- static convenience-function usage
-- insufficient-data behaviour
-- empty-window behaviour
+## Attribution and licensing
 
----
+The previous repository documentation records **Copyright: University of Genoa, Italy**. That notice is preserved here. No license file is included; copyright attribution alone is not a redistribution license.
 
-## Running the Demo
-
-Run:
-
-```bash
-python demo_clusterability.py
-```
-
-The demonstration simulates four movement scenarios:
-
-1. random movement
-2. repetitive or cyclic movement
-3. transition from random to concentrated movement
-4. multiple movement clusters
-
-For each scenario, the script reports Hopkins values and their corresponding interpretation.
-
----
-
-## Example: Comparing Random and Clustered Data
-
-```python
-import numpy as np
-
-from Clusterability import assess_clusterability
-
-rng = np.random.default_rng(42)
-
-random_data = rng.uniform(
-    low=-5,
-    high=5,
-    size=(300, 2),
-)
-
-clustered_data = np.vstack([
-    rng.normal(loc=(-3, -3), scale=0.4, size=(100, 2)),
-    rng.normal(loc=(0, 3), scale=0.4, size=(100, 2)),
-    rng.normal(loc=(3, -1), scale=0.4, size=(100, 2)),
-])
-
-random_result = assess_clusterability(
-    random_data,
-    random_state=42,
-)
-
-clustered_result = assess_clusterability(
-    clustered_data,
-    random_state=42,
-)
-
-print("Random data:", random_result)
-print("Clustered data:", clustered_result)
-```
-
----
-
-## Important Considerations
-
-### Scale the features
-
-Nearest-neighbour distance is sensitive to feature magnitude. Standardize or normalize features when they use different units.
-
-```python
-from sklearn.preprocessing import StandardScaler
-
-scaled_data = StandardScaler().fit_transform(data)
-```
-
-### Use enough observations
-
-Although the implementation accepts a minimum of 10 samples, larger datasets usually produce more reliable estimates.
-
-### Repeat stochastic analysis
-
-The Hopkins statistic depends on random sampling. Use a fixed `random_state` for reproducibility or evaluate repeated runs for a more stable estimate.
-
-### Interpret geometry carefully
-
-Curved trajectories, rings, manifolds, or cyclic motion may appear structured without forming conventional compact clusters. Hopkins measures clustering tendency, not the quality of a specific clustering algorithm.
-
-### Avoid treating thresholds as clinical or scientific conclusions
-
-The interpretation labels are operational categories. They should not replace domain validation, statistical testing, or downstream clustering evaluation.
-
----
-
-## Implementation Notes
-
-The calculation follows this general procedure:
-
-1. sample observations from the real dataset
-2. generate uniformly distributed points inside the dataset bounds
-3. compute nearest-neighbour distances for both groups
-4. compare the summed distances
-5. return a normalized score between 0 and 1
-
-The implementation uses `sklearn.neighbors.NearestNeighbors` for efficient nearest-neighbour search.
-
----
-
-## Limitations
-
-- Axis-aligned uniform sampling may be less representative for irregular feature spaces.
-- Results may change with feature scaling and dimensionality.
-- High-dimensional distance concentration can reduce interpretability.
-- The current implementation resets NumPy's global random seed when `random_state` is provided.
-- `compute_clusterability` converts internal computation failures into a fallback result instead of re-raising the exception.
-- Hopkins alone does not determine the optimal clustering algorithm or number of clusters.
-
-For research-grade use, consider repeated Hopkins estimates, local random-number generators, dimensionality diagnostics, and comparison with additional clustering-tendency measures.
-
----
-
-## References
-
-- Hopkins, B., & Skellam, J. G. (1954). *A new method for determining the type of distribution of plant individuals*. Annals of Botany.
-- Lawson, R. G., & Jurs, P. C. (1990). *New index for clustering tendency and its application to chemical problems*. Journal of Chemical Information and Computer Sciences.
-
----
-
-## Contributing
-
-Contributions are welcome.
-
-A typical contribution workflow is:
-
-```bash
-git checkout -b feature/your-change
-pytest -v
-git commit -m "Describe the change"
-git push origin feature/your-change
-```
-
-Open a pull request with:
-
-- a clear explanation of the change
-- tests for new behaviour
-- updated documentation where necessary
-- confirmation that the existing test suite passes
-
----
-
-## License
-
-Copyright: University of Genoa,Italy
-
+Maintained by [Abdullah Al Foysal](https://github.com/Foysal-A-Al). Cite the repository URL and exact commit when using this implementation.
